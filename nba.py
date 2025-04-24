@@ -1,6 +1,6 @@
 from typing import Any
 from mcp.server.fastmcp import FastMCP
-from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2
+from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2, boxscorefourfactorsv2
 import pandas as pd
 from datetime import date, timedelta
 
@@ -63,6 +63,26 @@ async def get_game_scores() -> list:
         scores.append(d)
 
     return scores
+
+@mcp.tool()
+async def get_four_factors(game_filter=None, table_view=False) -> dict:
+    """Get the score for all games that happened yesterday. 
+    It should start with a bolded title of the two teams that played, for example Memphis Grizzles - Los Angles Lakers and then list the four factors underneath. 
+    It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the four factors for that game.'
+    It can take the option to display the data in a table view as well"""
+
+    game_ids = get_game_ids()
+    ffs = []
+
+    for game_id in game_ids:
+        game = boxscorefourfactorsv2.BoxScoreFourFactorsV2(game_id=game_id).get_dict()['resultSets'][1]
+        df = pd.DataFrame(game['rowSet'], columns = game['headers'])
+        rdict = {}
+        for index, row in df.iterrows():
+            rdict[row['TEAM_ABBREVIATION']] = [row['EFG_PCT'], row['FTA_RATE'], row['TM_TOV_PCT'], row['OREB_PCT']]
+        ffs.append(rdict)
+
+    return ffs
 
     
 if __name__ == "__main__":
