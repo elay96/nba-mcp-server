@@ -2,20 +2,16 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2, boxscorefourfactorsv2
 import pandas as pd
-from datetime import date, timedelta
 
 # Initialize FastMCP server
-mcp = FastMCP("weather")
+mcp = FastMCP("nba")
 
-# Constants
-NWS_API_BASE = "https://api.weather.gov"
-USER_AGENT = "weather-app/1.0"
+def get_game_ids(game_date=None):
 
-def get_game_ids():
-    yesteday = date.today() - timedelta(days = 1)
-    y = str(yesteday).split('-')
-    y = str(y[1])+'/'+str(y[2])+'/'+str(y[0])
-    s = scoreboardv2.ScoreboardV2(day_offset=-1)
+    if(game_date is None):
+        s = scoreboardv2.ScoreboardV2(day_offset=-1)
+    else:
+        s = scoreboardv2.ScoreboardV2(game_date=game_date)
     games = None
     for r in s.get_dict()['resultSets']:
         if r['name'] == 'LineScore':
@@ -53,31 +49,26 @@ async def get_game_ids_tool() -> str:
     return get_game_ids()
 
 @mcp.tool()
-async def get_game_score() -> str:
-    """Get the score for a game It should be of the format Team 1: Score 1 - Team 2: Score 2. It would be great if claude to take the team name and return the full name, for example if dict 1 item is Memphis it would be great if it could return Memphis Grizzlies"""
-    for gid in get_game_ids():
-        d = get_final_score(get_game_box_score(gid))
+async def get_game_scores(game_date=None, game_filter=None, claude_summary=False) -> list:
+    """Get the score for a all games, that happened on a date, if no date is provided it gets the score of all games that happened yesterday.
+    No matter how the date is provided claude must format it to be 'mm/dd/yyyy' when it passes it into get game ids. 
+    It should be of the format Team 1: Score 1 - Team 2: Score 2. 
+    It should take the team name and return the full name, for example if dict 1 item is Memphis it would be great if it could return Memphis Grizzlies
+    It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the score for that game. 
+    It can take an optional boolean, claude_summary, if this is false claude should only provide the scores and no other information, if it is true claude should give a little blurb."""
+    d = []
+    for gid in get_game_ids(game_date):
+        d.append(get_final_score(get_game_box_score(gid)))
 
     return d
 
 @mcp.tool()
-async def get_game_scores() -> list:
-    """Get the score for all games that happened yesterday. 
-    It should be of the format Team 1: Score 1 - Team 2: Score 2. 
-    It would be great if claude to take the team name and return the full name, for example if dict 1 item is Memphis it would be great if it could return Memphis Grizzlies"""
-    scores = []
-    for gid in get_game_ids():
-        d = get_final_score(get_game_box_score(gid))
-        scores.append(d)
-
-    return scores
-
-@mcp.tool()
-async def get_four_factors(game_filter=None, table_view=False) -> dict:
+async def get_four_factors(game_filter=None, table_view=False, claude_summary=False) -> dict:
     """Get the score for all games that happened yesterday. 
     It should start with a bolded title of the two teams that played, for example Memphis Grizzles - Los Angles Lakers and then list the four factors underneath. 
     It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the four factors for that game.'
-    It can take the option to display the data in a table view as well"""
+    It can take the option to display the data in a table view as well.
+    It can take an optional boolean, claude_summary, if this is false claude should only provide the scores and no other information, if it is true claude should give a little blurb."""
 
     game_ids = get_game_ids()
     ffs = []
@@ -93,11 +84,12 @@ async def get_four_factors(game_filter=None, table_view=False) -> dict:
     return ffs
 
 @mcp.tool()
-async def get_pra_breakdown(game_filter=None, table_view=False):
+async def get_pra_breakdown(game_filter=None, table_view=False, claude_summary=False) -> list:
     """Get the points rebounds and assists for all players that played in all games that happened yesterday. 
     It should start with a bolded title of the two teams that played, for example Memphis Grizzles - Los Angles Lakers and then list the four factors underneath. 
     It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the four factors for that game.'
-    It can take the option to display the data in a table view as well, if it is a table view it should be two tables, one for each team."""
+    It can take the option to display the data in a table view as well, if it is a table view it should be two tables, one for each team.
+    It can take an optional boolean, claude_summary, if this is false claude should only provide the scores and no other information, if it is true claude should give a little blurb."""
     games = []
     for gid in get_game_ids():
         games.append(filter_to_pra_columns(get_game_box_score(gid)))
@@ -105,11 +97,14 @@ async def get_pra_breakdown(game_filter=None, table_view=False):
     return games
 
 @mcp.tool()
-async def get_full_breakdown(game_filter=None, table_view=False):
+async def get_full_breakdown(game_filter=None, table_view=False, claude_summary=False):
     """Get the points rebounds, assists steals, blocks, plus minus, turn overs, personal fouls, and minutes played for all players that played in all games that happened yesterday. 
     It should start with a bolded title of the two teams that played, for example Memphis Grizzles - Los Angles Lakers and then list the four factors underneath. 
     It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the four factors for that game.'
-    It can take the option to display the data in a table view as well, if it is a table view it should be two tables, one for each team."""
+    It can take the option to display the data in a table view as well, if it is a table view it should be two tables, one for each team.
+    It can take an optional boolean, claude_summary, if this is false claude should only provide the scores and no other information, if it is true claude should give a little blurb.
+    
+    """
     games = {}
     for gid in get_game_ids():
         game = filter_to_full_columns(get_game_box_score(gid))
@@ -122,5 +117,9 @@ async def get_full_breakdown(game_filter=None, table_view=False):
 
     
 if __name__ == "__main__":
+    gid = get_game_ids('4/24/2025')
+    for g in gid:
+        print(get_game_box_score(g))
+    
     # Initialize and run the server
     mcp.run(transport='stdio')
