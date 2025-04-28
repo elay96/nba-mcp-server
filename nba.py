@@ -1,6 +1,6 @@
 from typing import Any
 from mcp.server.fastmcp import FastMCP
-from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2, boxscorefourfactorsv2
+from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2, boxscorefourfactorsv2, boxscoretraditionalv3
 import pandas as pd
 
 # Initialize FastMCP server
@@ -52,7 +52,7 @@ async def get_game_ids_tool() -> str:
 @mcp.tool()
 async def get_game_scores(game_date=None, game_filter=None, claude_summary=False) -> list:
     """Get the score for a all games, that happened on a date, if no date is provided it gets the score of all games that happened yesterday.
-    No matter how the date is provided claude must format it to be 'mm/dd/yyyy' when it passes it into get game ids. 
+    No matter how the date is provided claude must format it to be 'yyyy/mm/dd' when it passes it into get game ids. 
     It should be of the format Team 1: Score 1 - Team 2: Score 2. 
     It should take the team name and return the full name, for example if dict 1 item is Memphis it would be great if it could return Memphis Grizzlies
     It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the score for that game. 
@@ -90,7 +90,7 @@ async def get_pra_breakdown(game_date=None, game_filter=None, table_view=False, 
     It should start with a bolded title of the two teams that played, for example Memphis Grizzles - Los Angles Lakers and then list the four factors underneath. 
     It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the four factors for that game.'
     It can take the option to display the data in a table view as well, if it is a table view it should be two tables, one for each team.
-    It can take an optional game date, which would be the day the games happened on. If it is not provided then we will fetch yesterdays games. No matter how the date is provided claude must format it to be 'mm/dd/yyyy' when it passes it into get game ids. 
+    It can take an optional game date, which would be the day the games happened on. If it is not provided then we will fetch yesterdays games. No matter how the date is provided claude must format it to be 'yyyy/mm/dd' when it passes it into get game ids. 
     It can take an optional boolean, claude_summary, if this is false claude should only provide the scores and no other information, if it is true claude should give a little blurb."""
     games = []
     for gid in get_game_ids(game_date):
@@ -105,7 +105,7 @@ async def get_full_breakdown(game_date=None, game_filter=None, table_view=False,
     It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the four factors for that game.'
     It can take the option to display the data in a table view as well - defaults as False, if it is a table view it should be two tables, one for each team.
     It can take an optional boolean, claude_summary - DEFAULTS TO False, if this is false claude should only provide the scores and no other information, no notes or anything, if it is true claude should give a little blurb.
-    It can take an optional game date, which would be the day the games happened on. If it is not provided then we will fetch yesterdays games. No matter how the date is provided claude must format it to be 'mm/dd/yyyy' when it passes it into get game ids. 
+    It can take an optional game date, which would be the day the games happened on. If it is not provided then we will fetch yesterdays games. No matter how the date is provided claude must format it to be 'yyyy/mm/dd' when it passes it into get game ids. 
     """
     
     games = []
