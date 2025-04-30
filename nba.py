@@ -94,7 +94,8 @@ async def get_pra_breakdown(game_date=None, game_filter=None, table_view=False, 
     It can take an optional boolean, claude_summary, if this is false claude should only provide the scores and no other information, if it is true claude should give a little blurb."""
     games = []
     for gid in get_game_ids(game_date):
-        games.append(filter_to_pra_columns(get_game_box_score(gid)).to_csv())
+        game = filter_to_pra_columns(get_game_box_score(gid)).to_csv()
+        games.append(game)
 
     return games
 
