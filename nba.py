@@ -1,6 +1,6 @@
 from typing import Any
 from mcp.server.fastmcp import FastMCP
-from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2, boxscorefourfactorsv2
+from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2, boxscorefourfactorsv2, playbyplayv2
 import pandas as pd
 
 # Initialize FastMCP server
@@ -16,14 +16,13 @@ def get_game_ids(game_date: str = None) -> set:
     for r in s.get_dict()['resultSets']:
         if r['name'] == 'LineScore':
             games = r
-    df = pd.DataFrame(games['rowSet'], columns = games['headers']) 
-    return set(df['GAME_ID'])
+    dataframe = pd.DataFrame(games['rowSet'], columns = games['headers']) 
+    return set(dataframe['GAME_ID'])
 
 def get_game_box_score(game_id: int) -> Any:
     game = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id).get_dict()['resultSets'][0]
-    df = pd.DataFrame(game['rowSet'], columns = game['headers']) 
-    print(df)
-    return df 
+    dataframe = pd.DataFrame(game['rowSet'], columns = game['headers']) 
+    return dataframe 
 
 def get_final_score(game: Any) -> dict:
     teams = set (game['TEAM_ABBREVIATION'] )
@@ -34,6 +33,12 @@ def get_final_score(game: Any) -> dict:
     team_1_pts = int(team_1['PTS'].sum())
     team_2_pts = int(team_2['PTS'].sum())
     return {team_1_name: team_1_pts, team_2_name: team_2_pts}
+
+def get_play_by_play_data(game_id: str) -> Any:
+    data = playbyplayv2.PlayByPlayV2(game_id=game_id).get_dict()['resultSets'][0]
+    dataframe = pd.DataFrame(data['rowSet'], columns = data['headers'])
+    return dataframe[['WCTIMESTRING', 'HOMEDESCRIPTION', 'NEUTRALDESCRIPTION', 'VISITORDESCRIPTION', 'SCORE']]
+
 
 def filter_to_pra_columns(game: Any) -> Any:
     return game[['PLAYER_NAME', 'TEAM_CITY', 'PTS', 'REB', 'AST']]
@@ -73,11 +78,11 @@ async def get_four_factors(game_filter=None, table_view=False, claude_summary=Fa
 
     for game_id in game_ids:
         game = boxscorefourfactorsv2.BoxScoreFourFactorsV2(game_id=game_id).get_dict()['resultSets'][1]
-        df = pd.DataFrame(game['rowSet'], columns = game['headers'])
+        dataframe = pd.DataFrame(game['rowSet'], columns = game['headers'])
         rdict = {}
-        for index, row in df.iterrows():
-            rdict[row['TEAM_ABBREVIATION']] = [row['EFG_PCT'], row['FTA_RATE'], row['TM_TOV_PCT'], row['OREB_PCT']]
-        four_factors.append(rdict)
+        for index, row in dataframe.iterrows():
+            filtered_dictionary[row['TEAM_ABBREVIATION']] = [row['EFG_PCT'], row['FTA_RATE'], row['TM_TOV_PCT'], row['OREB_PCT']]
+        four_factors.append(filtered_dictionary)
 
     return four_factors
 
@@ -111,6 +116,14 @@ async def get_full_breakdown(game_date=None, game_filter=None, table_view=False,
         games.append(game)
 
     return games
+
+#This is still a WIP
+@mcp.tool()
+async def get_play_by_play(game_id: str) -> list:
+    "Returns the play by play data from a game, Claude should serve this an easy to read format but it should serve the full data, it should not shorten it in any way"
+    pbp = get_play_by_play_data(game_id)
+    return pbp.to_csv()
+
 
 if __name__ == "__main__":
     # Initialize and run the server
