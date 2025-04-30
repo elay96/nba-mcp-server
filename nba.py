@@ -79,7 +79,7 @@ async def get_four_factors(game_filter=None, table_view=False, claude_summary=Fa
     for game_id in game_ids:
         game = boxscorefourfactorsv2.BoxScoreFourFactorsV2(game_id=game_id).get_dict()['resultSets'][1]
         dataframe = pd.DataFrame(game['rowSet'], columns = game['headers'])
-        rdict = {}
+        filtered_dictionary = {}
         for index, row in dataframe.iterrows():
             filtered_dictionary[row['TEAM_ABBREVIATION']] = [row['EFG_PCT'], row['FTA_RATE'], row['TM_TOV_PCT'], row['OREB_PCT']]
         four_factors.append(filtered_dictionary)
