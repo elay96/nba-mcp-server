@@ -150,9 +150,21 @@ async def api_get_pra_breakdown(game_date: str = None):
 
 if __name__ == "__main__":
     import sys
+    import os
+    
     if len(sys.argv) > 1 and sys.argv[1] == "mcp":
         # Run as MCP server
-        mcp.run(transport='stdio')
+        transport = os.getenv('MCP_TRANSPORT', 'stdio')
+        if transport == 'http':
+            # Run MCP over HTTP
+            from mcp.server.session import ServerSession
+            from mcp.server.stdio import stdio_server
+            # Add HTTP transport support here if needed
+            pass
+        else:
+            # Default stdio transport
+            mcp.run(transport='stdio')
     else:
         # Run as web server
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        port = int(os.getenv('PORT', 8000))
+        uvicorn.run(app, host="0.0.0.0", port=port)
