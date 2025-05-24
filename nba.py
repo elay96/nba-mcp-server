@@ -2,6 +2,8 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2, boxscorefourfactorsv2, playbyplayv2
 import pandas as pd
+from fastapi import FastAPI
+import uvicorn
 
 # Initialize FastMCP server
 mcp = FastMCP("nba")
@@ -124,7 +126,33 @@ async def get_play_by_play(game_id: str) -> list:
     pbp = get_play_by_play_data(game_id)
     return pbp.to_csv()
 
+# Create FastAPI app for web deployment
+app = FastAPI(title="NBA MCP Server", description="NBA data server for Claude MCP")
+
+@app.get("/")
+async def root():
+    return {"message": "NBA MCP Server is running", "status": "healthy"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+# Add some basic API endpoints for testing
+@app.get("/games/scores")
+async def api_get_game_scores(game_date: str = None):
+    """API endpoint to get game scores"""
+    return await get_game_scores(game_date=game_date)
+
+@app.get("/games/pra")
+async def api_get_pra_breakdown(game_date: str = None):
+    """API endpoint to get PRA breakdown"""
+    return await get_pra_breakdown(game_date=game_date)
 
 if __name__ == "__main__":
-    # Initialize and run the server
-    mcp.run(transport='stdio')
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "mcp":
+        # Run as MCP server
+        mcp.run(transport='stdio')
+    else:
+        # Run as web server
+        uvicorn.run(app, host="0.0.0.0", port=8000)
