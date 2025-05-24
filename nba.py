@@ -1,9 +1,13 @@
 from typing import Any
 from mcp.server.fastmcp import FastMCP
+from mcp.server import Server
+from mcp.types import Tool, TextContent
 from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2, boxscorefourfactorsv2, playbyplayv2
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 import uvicorn
+import json
 
 # Initialize FastMCP server
 mcp = FastMCP("nba")
@@ -41,13 +45,11 @@ def get_play_by_play_data(game_id: str) -> Any:
     dataframe = pd.DataFrame(data['rowSet'], columns = data['headers'])
     return dataframe[['WCTIMESTRING', 'HOMEDESCRIPTION', 'NEUTRALDESCRIPTION', 'VISITORDESCRIPTION', 'SCORE']]
 
-
 def filter_to_pra_columns(game: Any) -> Any:
     return game[['PLAYER_NAME', 'TEAM_CITY', 'PTS', 'REB', 'AST']]
 
 def filter_to_full_columns(game: Any) -> Any:
     return game[['PLAYER_NAME', 'TEAM_CITY', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PLUS_MINUS', 'MIN']]
-
 
 @mcp.tool()
 async def get_game_ids_tool() -> str:
@@ -56,28 +58,17 @@ async def get_game_ids_tool() -> str:
 
 @mcp.tool()
 async def get_game_scores(game_date=None, game_filter=None, claude_summary=False) -> list:
-    """Get the score for a all games, that happened on a date, if no date is provided it gets the score of all games that happened yesterday.
-    No matter how the date is provided claude must format it to be 'yyyy/mm/dd' when it passes it into get game ids. 
-    It should be of the format Team 1: Score 1 - Team 2: Score 2. 
-    It should take the team name and return the full name, for example if dict 1 item is Memphis it would be great if it could return Memphis Grizzlies
-    It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the score for that game. 
-    It can take an optional boolean, claude_summary, if this is false claude should only provide the scores and no other information, if it is true claude should give a little blurb."""
+    """Get the score for a all games, that happened on a date, if no date is provided it gets the score of all games that happened yesterday."""
     game_scores = []
     for game_id in get_game_ids(game_date):
         game_scores.append(get_final_score(get_game_box_score(game_id)))
-
     return game_scores
 
 @mcp.tool()
 async def get_four_factors(game_filter=None, table_view=False, claude_summary=False) -> dict:
-    """Get the score for all games that happened yesterday. 
-    It should start with a bolded title of the two teams that played, for example Memphis Grizzles - Los Angles Lakers and then list the four factors underneath. 
-    It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the four factors for that game.'
-    It can take the option to display the data in a table view as well.
-    It can take an optional boolean, claude_summary, if this is false claude should only provide the scores and no other information, if it is true claude should give a little blurb."""
+    """Get the four factors for all games that happened yesterday."""
     game_ids = get_game_ids()
     four_factors = []
-
     for game_id in game_ids:
         game = boxscorefourfactorsv2.BoxScoreFourFactorsV2(game_id=game_id).get_dict()['resultSets'][1]
         dataframe = pd.DataFrame(game['rowSet'], columns = game['headers'])
@@ -85,44 +76,29 @@ async def get_four_factors(game_filter=None, table_view=False, claude_summary=Fa
         for index, row in dataframe.iterrows():
             filtered_dictionary[row['TEAM_ABBREVIATION']] = [row['EFG_PCT'], row['FTA_RATE'], row['TM_TOV_PCT'], row['OREB_PCT']]
         four_factors.append(filtered_dictionary)
-
     return four_factors
 
 @mcp.tool()
 async def get_pra_breakdown(game_date=None, game_filter=None, table_view=False, claude_summary=False) -> list:
-    """Get the points rebounds and assists for all players that played in all games that happened yesterday. 
-    It should start with a bolded title of the two teams that played, for example Memphis Grizzles - Los Angles Lakers and then list the four factors underneath. 
-    It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the four factors for that game.'
-    It can take the option to display the data in a table view as well, if it is a table view it should be two tables, one for each team.
-    It can take an optional game date, which would be the day the games happened on. If it is not provided then we will fetch yesterdays games. No matter how the date is provided claude must format it to be 'yyyy/mm/dd' when it passes it into get game ids. 
-    It can take an optional boolean, claude_summary, if this is false claude should only provide the scores and no other information, if it is true claude should give a little blurb."""
+    """Get the points rebounds and assists for all players that played in all games."""
     games = []
     for game_id in get_game_ids(game_date):
         game = filter_to_pra_columns(get_game_box_score(game_id)).to_csv()
         games.append(game)
-
     return games
 
 @mcp.tool()
 async def get_full_breakdown(game_date=None, game_filter=None, table_view=False, claude_summary=False) -> list:
-    """Returns the points rebounds, assists steals, blocks, plus minus, turn overs, personal fouls played for all players that played in all games that happened yesterday. 
-    It should start with a bolded title of the two teams that played, for example Memphis Grizzles - Los Angles Lakers and then list the four factors underneath. 
-    It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the four factors for that game.'
-    It can take the option to display the data in a table view as well - defaults as False, if it is a table view it should be two tables, one for each team.
-    It can take an optional boolean, claude_summary - DEFAULTS TO False, if this is false claude should only provide the scores and no other information, no notes or anything, if it is true claude should give a little blurb.
-    It can take an optional game date, which would be the day the games happened on. If it is not provided then we will fetch yesterdays games. No matter how the date is provided claude must format it to be 'yyyy/mm/dd' when it passes it into get game ids. 
-    """
+    """Returns the full stats breakdown for all players."""
     games = []
     for game_id in get_game_ids(game_date):
         game = filter_to_full_columns(get_game_box_score(game_id)).to_csv()
         games.append(game)
-
     return games
 
-#This is still a WIP
 @mcp.tool()
 async def get_play_by_play(game_id: str) -> list:
-    "Returns the play by play data from a game, Claude should serve this an easy to read format but it should serve the full data, it should not shorten it in any way"
+    """Returns the play by play data from a game."""
     pbp = get_play_by_play_data(game_id)
     return pbp.to_csv()
 
@@ -137,7 +113,131 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-# Add some basic API endpoints for testing
+# MCP over HTTP endpoints
+@app.post("/mcp/initialize")
+async def mcp_initialize(request: Request):
+    """MCP initialization endpoint"""
+    body = await request.json()
+    return {
+        "jsonrpc": "2.0",
+        "id": body.get("id"),
+        "result": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {
+                "tools": {}
+            },
+            "serverInfo": {
+                "name": "nba-mcp-server",
+                "version": "0.1.0"
+            }
+        }
+    }
+
+@app.post("/mcp/tools/list")
+async def mcp_tools_list(request: Request):
+    """List available MCP tools"""
+    body = await request.json()
+    tools = [
+        {
+            "name": "get_game_scores",
+            "description": "Get the score for all games that happened on a date",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "game_date": {"type": "string", "description": "Game date in yyyy/mm/dd format"},
+                    "game_filter": {"type": "string", "description": "Filter for specific game"},
+                    "claude_summary": {"type": "boolean", "description": "Whether to include summary"}
+                }
+            }
+        },
+        {
+            "name": "get_pra_breakdown",
+            "description": "Get points, rebounds, assists for all players",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "game_date": {"type": "string", "description": "Game date in yyyy/mm/dd format"},
+                    "game_filter": {"type": "string", "description": "Filter for specific game"},
+                    "table_view": {"type": "boolean", "description": "Display in table format"},
+                    "claude_summary": {"type": "boolean", "description": "Whether to include summary"}
+                }
+            }
+        },
+        {
+            "name": "get_full_breakdown",
+            "description": "Get full stats breakdown for all players",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "game_date": {"type": "string", "description": "Game date in yyyy/mm/dd format"},
+                    "game_filter": {"type": "string", "description": "Filter for specific game"},
+                    "table_view": {"type": "boolean", "description": "Display in table format"},
+                    "claude_summary": {"type": "boolean", "description": "Whether to include summary"}
+                }
+            }
+        },
+        {
+            "name": "get_four_factors",
+            "description": "Get four factors for games",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "game_filter": {"type": "string", "description": "Filter for specific game"},
+                    "table_view": {"type": "boolean", "description": "Display in table format"},
+                    "claude_summary": {"type": "boolean", "description": "Whether to include summary"}
+                }
+            }
+        }
+    ]
+    
+    return {
+        "jsonrpc": "2.0",
+        "id": body.get("id"),
+        "result": {"tools": tools}
+    }
+
+@app.post("/mcp/tools/call")
+async def mcp_tools_call(request: Request):
+    """Call an MCP tool"""
+    body = await request.json()
+    tool_name = body["params"]["name"]
+    arguments = body["params"].get("arguments", {})
+    
+    try:
+        if tool_name == "get_game_scores":
+            result = await get_game_scores(**arguments)
+        elif tool_name == "get_pra_breakdown":
+            result = await get_pra_breakdown(**arguments)
+        elif tool_name == "get_full_breakdown":
+            result = await get_full_breakdown(**arguments)
+        elif tool_name == "get_four_factors":
+            result = await get_four_factors(**arguments)
+        else:
+            raise ValueError(f"Unknown tool: {tool_name}")
+        
+        return {
+            "jsonrpc": "2.0",
+            "id": body.get("id"),
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(result, indent=2)
+                    }
+                ]
+            }
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0",
+            "id": body.get("id"),
+            "error": {
+                "code": -32000,
+                "message": str(e)
+            }
+        }
+
+# Regular API endpoints for testing
 @app.get("/games/scores")
 async def api_get_game_scores(game_date: str = None):
     """API endpoint to get game scores"""
@@ -153,18 +253,7 @@ if __name__ == "__main__":
     import os
     
     if len(sys.argv) > 1 and sys.argv[1] == "mcp":
-        # Run as MCP server
-        transport = os.getenv('MCP_TRANSPORT', 'stdio')
-        if transport == 'http':
-            # Run MCP over HTTP
-            from mcp.server.session import ServerSession
-            from mcp.server.stdio import stdio_server
-            # Add HTTP transport support here if needed
-            pass
-        else:
-            # Default stdio transport
-            mcp.run(transport='stdio')
+        mcp.run(transport='stdio')
     else:
-        # Run as web server
         port = int(os.getenv('PORT', 8000))
         uvicorn.run(app, host="0.0.0.0", port=port)
