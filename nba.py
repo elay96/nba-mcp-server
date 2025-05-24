@@ -1,144 +1,170 @@
-from typing import Any, Set, List, Dict
-from fastapi import FastAPI
+from typing import Any
 from mcp.server.fastmcp import FastMCP
-from nba_api.stats.endpoints import (
-    scoreboardv2,
-    boxscoretraditionalv2,
-    boxscorefourfactorsv2,
-    playbyplayv2,
-)
+from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2, boxscorefourfactorsv2, playbyplayv2
 import pandas as pd
+from fastapi import FastAPI
+import uvicorn
 
-# ---------- MCP server ----------
-mcp = FastMCP("nba")                    # יוצר שרת MCP
-pd.set_option("display.max_rows", None)
+# Initialize FastMCP server
+mcp = FastMCP("nba")
+pd.set_option('display.max_rows', None)
 
-# ---------- פונקציות עזר ----------
-def get_game_ids(game_date: str | None = None) -> Set[str]:
-    sb = (
-        scoreboardv2.ScoreboardV2(day_offset=-1)
-        if game_date is None
-        else scoreboardv2.ScoreboardV2(game_date=game_date)
-    )
-    line_score = next(r for r in sb.get_dict()["resultSets"] if r["name"] == "LineScore")
-    df = pd.DataFrame(line_score["rowSet"], columns=line_score["headers"])
-    return set(df["GAME_ID"])
+def get_game_ids(game_date: str = None) -> set:
+    if(game_date is None):
+        s = scoreboardv2.ScoreboardV2(day_offset=-1)
+    else:
+        s = scoreboardv2.ScoreboardV2(game_date=game_date)
+    games = None
+    for r in s.get_dict()['resultSets']:
+        if r['name'] == 'LineScore':
+            games = r
+    dataframe = pd.DataFrame(games['rowSet'], columns = games['headers']) 
+    return set(dataframe['GAME_ID'])
 
+def get_game_box_score(game_id: int) -> Any:
+    game = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id).get_dict()['resultSets'][0]
+    dataframe = pd.DataFrame(game['rowSet'], columns = game['headers']) 
+    return dataframe 
 
-def get_game_box_score(game_id: str) -> pd.DataFrame:
-    game = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id).get_dict()[
-        "resultSets"
-    ][0]
-    return pd.DataFrame(game["rowSet"], columns=game["headers"])
+def get_final_score(game: Any) -> dict:
+    teams = set (game['TEAM_ABBREVIATION'] )
+    team_1_name = teams.pop()
+    team_2_name = teams.pop()
+    team_1 = game[game['TEAM_ABBREVIATION'] == team_1_name]
+    team_2 = game[game['TEAM_ABBREVIATION'] == team_2_name]
+    team_1_pts = int(team_1['PTS'].sum())
+    team_2_pts = int(team_2['PTS'].sum())
+    return {team_1_name: team_1_pts, team_2_name: team_2_pts}
 
-
-def get_final_score(game_df: pd.DataFrame) -> Dict[str, int]:
-    teams = list(game_df["TEAM_ABBREVIATION"].unique())
-    return {
-        teams[0]: int(game_df[game_df["TEAM_ABBREVIATION"] == teams[0]]["PTS"].sum()),
-        teams[1]: int(game_df[game_df["TEAM_ABBREVIATION"] == teams[1]]["PTS"].sum()),
-    }
-
-
-def get_play_by_play_data(game_id: str) -> pd.DataFrame:
-    data = playbyplayv2.PlayByPlayV2(game_id=game_id).get_dict()["resultSets"][0]
-    df = pd.DataFrame(data["rowSet"], columns=data["headers"])
-    return df[
-        ["WCTIMESTRING", "HOMEDESCRIPTION", "NEUTRALDESCRIPTION", "VISITORDESCRIPTION", "SCORE"]
-    ]
-
-
-def filter_to_pra_columns(game_df: pd.DataFrame) -> pd.DataFrame:
-    return game_df[["PLAYER_NAME", "TEAM_CITY", "PTS", "REB", "AST"]]
+def get_play_by_play_data(game_id: str) -> Any:
+    data = playbyplayv2.PlayByPlayV2(game_id=game_id).get_dict()['resultSets'][0]
+    dataframe = pd.DataFrame(data['rowSet'], columns = data['headers'])
+    return dataframe[['WCTIMESTRING', 'HOMEDESCRIPTION', 'NEUTRALDESCRIPTION', 'VISITORDESCRIPTION', 'SCORE']]
 
 
-def filter_to_full_columns(game_df: pd.DataFrame) -> pd.DataFrame:
-    return game_df[
-        [
-            "PLAYER_NAME",
-            "TEAM_CITY",
-            "PTS",
-            "REB",
-            "AST",
-            "STL",
-            "BLK",
-            "TO",
-            "PLUS_MINUS",
-            "MIN",
-        ]
-    ]
+def filter_to_pra_columns(game: Any) -> Any:
+    return game[['PLAYER_NAME', 'TEAM_CITY', 'PTS', 'REB', 'AST']]
 
-# ---------- MCP tools ----------
-@mcp.tool()
-async def get_game_ids_tool(game_date: str | None = None) -> Set[str]:
-    """Return game IDs for the given date (yesterday if not provided)."""
-    return get_game_ids(game_date)
+def filter_to_full_columns(game: Any) -> Any:
+    return game[['PLAYER_NAME', 'TEAM_CITY', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', 'PLUS_MINUS', 'MIN']]
 
 
 @mcp.tool()
-async def get_game_scores(game_date: str | None = None) -> List[Dict[str, int]]:
-    """Return final scores for all games on a date (yesterday if not provided)."""
-    return [get_final_score(get_game_box_score(gid)) for gid in get_game_ids(game_date)]
-
-
-@mcp.tool()
-async def get_four_factors(game_date: str | None = None) -> List[dict]:
-    """Return Four Factors for each game on the date requested."""
-    results = []
-    for gid in get_game_ids(game_date):
-        raw = boxscorefourfactorsv2.BoxScoreFourFactorsV2(game_id=gid).get_dict()[
-            "resultSets"
-        ][1]
-        df = pd.DataFrame(raw["rowSet"], columns=raw["headers"])
-        results.append(
-            {
-                row["TEAM_ABBREVIATION"]: [
-                    row["EFG_PCT"],
-                    row["FTA_RATE"],
-                    row["TM_TOV_PCT"],
-                    row["OREB_PCT"],
-                ]
-                for _, row in df.iterrows()
-            }
-        )
-    return results
-
+async def get_game_ids_tool() -> str:
+    """Get the game IDs for all the games that happened yesterday."""
+    return get_game_ids()
 
 @mcp.tool()
-async def get_pra_breakdown(game_date: str | None = None) -> List[str]:
-    """Return CSV strings of PTS-REB-AST for every game on the date."""
-    return [
-        filter_to_pra_columns(get_game_box_score(gid)).to_csv(index=False)
-        for gid in get_game_ids(game_date)
-    ]
+async def get_game_scores(game_date=None, game_filter=None, claude_summary=False) -> list:
+    """Get the score for a all games, that happened on a date, if no date is provided it gets the score of all games that happened yesterday.
+    No matter how the date is provided claude must format it to be 'yyyy/mm/dd' when it passes it into get game ids. 
+    It should be of the format Team 1: Score 1 - Team 2: Score 2. 
+    It should take the team name and return the full name, for example if dict 1 item is Memphis it would be great if it could return Memphis Grizzlies
+    It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the score for that game. 
+    It can take an optional boolean, claude_summary, if this is false claude should only provide the scores and no other information, if it is true claude should give a little blurb."""
+    game_scores = []
+    for game_id in get_game_ids(game_date):
+        game_scores.append(get_final_score(get_game_box_score(game_id)))
 
-
-@mcp.tool()
-async def get_full_breakdown(game_date: str | None = None) -> List[str]:
-    """Return full box-score CSV strings for every game on the date."""
-    return [
-        filter_to_full_columns(get_game_box_score(gid)).to_csv(index=False)
-        for gid in get_game_ids(game_date)
-    ]
-
+    return game_scores
 
 @mcp.tool()
-async def get_play_by_play(game_id: str) -> str:
-    """Return play-by-play CSV for the given game ID."""
-    return get_play_by_play_data(game_id).to_csv(index=False)
+async def get_four_factors(game_filter=None, table_view=False, claude_summary=False) -> dict:
+    """Get the score for all games that happened yesterday. 
+    It should start with a bolded title of the two teams that played, for example Memphis Grizzles - Los Angles Lakers and then list the four factors underneath. 
+    It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the four factors for that game.'
+    It can take the option to display the data in a table view as well.
+    It can take an optional boolean, claude_summary, if this is false claude should only provide the scores and no other information, if it is true claude should give a little blurb."""
+    game_ids = get_game_ids()
+    four_factors = []
 
-# ---------- FastAPI app ----------
-app = FastAPI(title="NBA MCP Server", description="NBA data server for MCP")
+    for game_id in game_ids:
+        game = boxscorefourfactorsv2.BoxScoreFourFactorsV2(game_id=game_id).get_dict()['resultSets'][1]
+        dataframe = pd.DataFrame(game['rowSet'], columns = game['headers'])
+        filtered_dictionary = {}
+        for index, row in dataframe.iterrows():
+            filtered_dictionary[row['TEAM_ABBREVIATION']] = [row['EFG_PCT'], row['FTA_RATE'], row['TM_TOV_PCT'], row['OREB_PCT']]
+        four_factors.append(filtered_dictionary)
 
-# ברירת המחדל של FastMCP בגרסאות 2.3 ומעלה – נתיב /mcp
-app.mount("/mcp", mcp.http_app())
+    return four_factors
 
-# בריאות בסיסית
+@mcp.tool()
+async def get_pra_breakdown(game_date=None, game_filter=None, table_view=False, claude_summary=False) -> list:
+    """Get the points rebounds and assists for all players that played in all games that happened yesterday. 
+    It should start with a bolded title of the two teams that played, for example Memphis Grizzles - Los Angles Lakers and then list the four factors underneath. 
+    It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the four factors for that game.'
+    It can take the option to display the data in a table view as well, if it is a table view it should be two tables, one for each team.
+    It can take an optional game date, which would be the day the games happened on. If it is not provided then we will fetch yesterdays games. No matter how the date is provided claude must format it to be 'yyyy/mm/dd' when it passes it into get game ids. 
+    It can take an optional boolean, claude_summary, if this is false claude should only provide the scores and no other information, if it is true claude should give a little blurb."""
+    games = []
+    for game_id in get_game_ids(game_date):
+        game = filter_to_pra_columns(get_game_box_score(game_id)).to_csv()
+        games.append(game)
+
+    return games
+
+@mcp.tool()
+async def get_full_breakdown(game_date=None, game_filter=None, table_view=False, claude_summary=False) -> list:
+    """Returns the points rebounds, assists steals, blocks, plus minus, turn overs, personal fouls played for all players that played in all games that happened yesterday. 
+    It should start with a bolded title of the two teams that played, for example Memphis Grizzles - Los Angles Lakers and then list the four factors underneath. 
+    It can take an optional game title, for example 'Memphis Grizzlies game' or 'lakers game', in which case it should only return the four factors for that game.'
+    It can take the option to display the data in a table view as well - defaults as False, if it is a table view it should be two tables, one for each team.
+    It can take an optional boolean, claude_summary - DEFAULTS TO False, if this is false claude should only provide the scores and no other information, no notes or anything, if it is true claude should give a little blurb.
+    It can take an optional game date, which would be the day the games happened on. If it is not provided then we will fetch yesterdays games. No matter how the date is provided claude must format it to be 'yyyy/mm/dd' when it passes it into get game ids. 
+    """
+    games = []
+    for game_id in get_game_ids(game_date):
+        game = filter_to_full_columns(get_game_box_score(game_id)).to_csv()
+        games.append(game)
+
+    return games
+
+#This is still a WIP
+@mcp.tool()
+async def get_play_by_play(game_id: str) -> list:
+    "Returns the play by play data from a game, Claude should serve this an easy to read format but it should serve the full data, it should not shorten it in any way"
+    pbp = get_play_by_play_data(game_id)
+    return pbp.to_csv()
+
+# Create FastAPI app for web deployment
+app = FastAPI(title="NBA MCP Server", description="NBA data server for Claude MCP")
+
 @app.get("/")
 async def root():
     return {"message": "NBA MCP Server is running", "status": "healthy"}
 
-# ---------- הרצה מקומית בלבד ----------
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+# Add some basic API endpoints for testing
+@app.get("/games/scores")
+async def api_get_game_scores(game_date: str = None):
+    """API endpoint to get game scores"""
+    return await get_game_scores(game_date=game_date)
+
+@app.get("/games/pra")
+async def api_get_pra_breakdown(game_date: str = None):
+    """API endpoint to get PRA breakdown"""
+    return await get_pra_breakdown(game_date=game_date)
+
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("nba:app", host="0.0.0.0", port=8000, reload=True)
+    import sys
+    import os
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "mcp":
+        # Run as MCP server
+        transport = os.getenv('MCP_TRANSPORT', 'stdio')
+        if transport == 'http':
+            # Run MCP over HTTP
+            from mcp.server.session import ServerSession
+            from mcp.server.stdio import stdio_server
+            # Add HTTP transport support here if needed
+            pass
+        else:
+            # Default stdio transport
+            mcp.run(transport='stdio')
+    else:
+        # Run as web server
+        port = int(os.getenv('PORT', 8000))
+        uvicorn.run(app, host="0.0.0.0", port=port)
