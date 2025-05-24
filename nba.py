@@ -114,48 +114,6 @@ async def health_check():
     return {"status": "healthy"}
 
 # MCP over HTTP endpoints
-@app.post("/mcp")
-async def mcp_main(request: Request):
-    """Main MCP endpoint that handles all MCP requests"""
-    body = await request.json()
-    method = body.get("method")
-    
-    if method == "initialize":
-        return await mcp_initialize_handler(body)
-    elif method == "tools/list":
-        return await mcp_tools_list_handler(body)
-    elif method == "tools/call":
-        return await mcp_tools_call_handler(body)
-    else:
-        return {
-            "jsonrpc": "2.0",
-            "id": body.get("id"),
-            "error": {
-                "code": -32601,
-                "message": f"Method not found: {method}"
-@app.post("/mcp/tools/call")
-async def mcp_tools_call(request: Request):
-    """Call an MCP tool"""
-    body = await request.json()
-    return await mcp_tools_call_handler(body)
-
-async def mcp_initialize_handler(body):
-    """MCP initialization handler"""
-    return {
-        "jsonrpc": "2.0",
-        "id": body.get("id"),
-        "result": {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {
-                "tools": {}
-            },
-            "serverInfo": {
-                "name": "nba-mcp-server",
-                "version": "0.1.0"
-            }
-        }
-    }
-
 @app.post("/mcp/initialize")
 async def mcp_initialize(request: Request):
     """MCP initialization endpoint"""
@@ -175,8 +133,10 @@ async def mcp_initialize(request: Request):
         }
     }
 
-async def mcp_tools_list_handler(body):
-    """List available MCP tools handler"""
+@app.post("/mcp/tools/list")
+async def mcp_tools_list(request: Request):
+    """List available MCP tools"""
+    body = await request.json()
     tools = [
         {
             "name": "get_game_scores",
@@ -236,14 +196,10 @@ async def mcp_tools_list_handler(body):
         "result": {"tools": tools}
     }
 
-@app.post("/mcp/tools/list")
-async def mcp_tools_list(request: Request):
-    """List available MCP tools"""
+@app.post("/mcp/tools/call")
+async def mcp_tools_call(request: Request):
+    """Call an MCP tool"""
     body = await request.json()
-    return await mcp_tools_list_handler(body)
-
-async def mcp_tools_call_handler(body):
-    """Call an MCP tool handler"""
     tool_name = body["params"]["name"]
     arguments = body["params"].get("arguments", {})
     
