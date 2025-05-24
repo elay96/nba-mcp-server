@@ -1,4 +1,4 @@
 fastapi
 uvicorn[standard]
 nba_api
-mcp[cli]
+mcp[cli]>=2.3.2
